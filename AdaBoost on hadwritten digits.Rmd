@@ -1,0 +1,150 @@
+---
+title: "5241_HW4_problem3_cb3341"
+author: "Chenchen Bi"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Problem 3 (Boosting)
+*1. Implement the Adaboost algorithm in R.The algorithm requires two auxiliary functions, to train and evaluate the weak learner. We also need a third function which implements the resulting boosting classifer. We will use decision stumps as weak learners, but a good implementation of the boosting algorithm should permit you to eaisly plug in arbitrary weak learners.*
+```{r }
+adaboost <- function(X, y, B){ #the AdaBoost algorithm
+  n <- dim(X)[1]
+  w <- rep(1/n, n)
+  alpha <- rep(0, B)
+  allPars <- rep(list(list()), B)
+  
+  for(b in 1:B){
+    allPars[[b]] <- train(X,w,y) #step a
+    
+    miss.class <- (y != classify(X, allPars[[b]]))
+    error <- (w %*% miss.class / sum(w))[1] #step b
+    
+    alpha[b] <- log((1 - error) / error) #step c
+    
+    w <- w * exp(alpha[b] * miss.class) #step d
+    
+  }
+  return(list(allPars = allPars, alpha = alpha))
+}
+
+agg_class <- function(X, alpha, allPars){ #function evaluates the boosting classifier on X
+  n <- dim(X)[1]
+  B <- length(alpha)
+  labels <- matrix(0, n, B)
+  
+  for (b in 1:B){
+    labels[, b] <- classify(X, allPars[[b]])
+  }
+  
+  labels <- labels %*% alpha
+  c.hat <- sign(labels) #estimated class labels 
+  return(c.hat)
+}
+```
+
+*2. Implement the functions train and classify for decision stumps. *
+```{r }
+train <- function(X, w, y){ #function for the weak learner training routine
+  n <- dim(X)[1]
+  p <- dim(X)[2]
+  mode <- rep(0, p)
+  theta <- rep(0, p)
+  loss <- rep(0, p)
+  
+  for (j in 1:p){
+    ind <- order(X[ , j])
+    x.j <- X[ind, j]
+    rev.x.j <- X[rev(ind), j]
+
+    w.cum <- cumsum(w[ind] * y[ind])
+    w.cum[rev(duplicated(rev.x.j) == 1)] <- NA
+    
+    m <- max(abs(w.cum), na.rm = T)
+    max.ind <- min(which(abs(w.cum) == m))
+    mode[j] <- (w.cum[max.ind] < 0) * 2 - 1
+    theta[j] <- x.j[max.ind]
+    c <- ((X[, j] > theta[j]) * 2 - 1) * mode[j]
+    loss[j] <- w %*% (c != y)
+  }
+  
+  m <- min(loss)
+  j.star <- min(which(loss == m))
+  pars <- list(j = j.star, theta = theta[j.star], mode = mode[j.star])
+  return(pars) #returns the optimal parameters
+}
+
+classify <- function(X, pars){ #a function evaluates the weak learner on X using pars from train
+ label <- (2 * (X[ , pars$j] > pars$theta) - 1) * pars$mode
+ return(label)
+}
+
+```
+
+
+*3. Run your algorithm on the USPS data (the digit data we use in Homework 2, use the training and test data for the 3s and 8s) and evaluate your results using cross validation. *
+```{r }
+set.seed(10)
+B <- 60
+n.CV <- 5
+
+#Setting up the data
+train.3 <- read.csv("train_3.txt", header = F)
+train.8 <- read.csv("train_8.txt", header = F)
+X <- rbind(train.3, train.8)
+y <- rep(c(1,-1), c(nrow(train.3), nrow(train.8)))
+n <- length(y)
+
+train.error.rate <- matrix(0, B, n.CV)
+test.error.rate <- matrix(0, B, n.CV)
+
+for(i in 1:n.CV){
+   p <- sample.int(n) #randomly split data to train and test set to perform CV, more efficient way
+  train.ind <- p[1:round(n / 2)]
+  test.ind <- p[-(1:round(n / 2))]
+  
+  ada <- adaboost(X[train.ind, ], y[train.ind], B)
+  allPars <- ada$allPars
+  alpha <- ada$alpha
+
+  for (b in 1:B) {
+    c.hat.test <- agg_class(X[test.ind, ], alpha[1:b], allPars[1:b])
+    c.hat.train <- agg_class(X[train.ind, ], alpha[1:b], allPars[1:b])
+  
+    test.error.rate[b,i] <- mean(y[test.ind] != c.hat.test)
+    train.error.rate[b,i] <- mean(y[train.ind] != c.hat.train)
+  }
+}
+
+```
+
+
+*4. Plot the training error and the test error as a function of b. *
+```{r }
+matplot(train.error.rate, type = "l", lty = 1:n.CV, 
+        main = "training error", xlab = "num of base classifiers",
+        ylab = "error rate")
+
+matplot(test.error.rate, type = "l", lty = 1:n.CV, 
+        main = "test error", xlab = "num of base classifiers",
+        ylab = "error rate")
+
+```
+
+**The two plots above are the training error rate and test error rate of the boosted decision stumps. The dash lines represents each random split of the data in training and test halves. From the plots we see that as the number of base classifiers getting larger and larger, both the training error and test error drop. We reach zero training error for roughly b > 25. In that case, it is meaningless to increase b further more and for the sake of avoiding overfitting. From the test error we see that this algorithm performs relatively robust. For b > 25 the test error stays roughly the same, which means that increasing b when b > 25 has basically no side effect to the accuracy of this learning algorithm. ** 
+
+
+
+
+
+
+
+
+
+
+
